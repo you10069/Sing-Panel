@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sing-Box 用户管理面板</title>
+    <!-- 引入 Vue 3 和 Tailwind CSS -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800">
+<div id="app" class="max-w-7xl mx-auto mt-10 p-6 bg-white rounded-lg shadow-md">
+    <h1 class="text-2xl font-bold mb-6 text-gray-800 border-b pb-3">Sing-Box 流量控制台</h1>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+            <thead>
+                <tr class="bg-gray-100 text-gray-600 text-sm uppercase tracking-wider">
+                    <th class="p-3 border-b rounded-tl-lg">用户名 (Name)</th>
+                    <th class="p-3 border-b">上传 / 下载</th>
+                    <th class="p-3 border-b">总已用 (合计)</th>
+                    <th class="p-3 border-b">总额度 (GB)</th>
+                    <th class="p-3 border-b">到期时间</th>
+                    <th class="p-3 border-b">当前状态</th>
+                    <th class="p-3 border-b rounded-tr-lg">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr v-for="user in users" :key="user.name" class="hover:bg-blue-50 border-b transition duration-150">
+                    <!-- 用户名 -->
+                    <td class="p-3 font-bold text-gray-700">{{ user.name }}</td>
+                    
+                    <!-- 上传/下载分栏展示 -->
+                    <td class="p-3 text-sm">
+                        <div class="text-green-600 font-medium mb-1" title="上传流量">
+                            <span class="inline-block w-4">↑</span> {{ formatBytes(user.up_bytes) }}
+                        </div>
+                        <div class="text-blue-500 font-medium" title="下载流量">
+                            <span class="inline-block w-4">↓</span> {{ formatBytes(user.down_bytes) }}
+                        </div>
+                    </td>
+                    
+                    <!-- 累计已用总流量 -->
+                    <td class="p-3 font-bold text-gray-800">
+                        {{ formatBytes(user.used_bytes) }}
+                    </td>
+                    
+                    <!-- 额度输入框 -->
+                    <td class="p-3">
+                        <div class="flex items-center space-x-1">
+                            <input v-model="user.quota_gb" type="number" min="0" class="w-20 p-1.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                            <span class="text-gray-600 font-medium">GB</span>
+                        </div>
+                        <span class="text-xs text-gray-400 block mt-1">(0代表无限制)</span>
+                    </td>
+                    
+                    <!-- 到期时间选择器 -->
+                    <td class="p-3">
+                        <input v-model="user.expire_date" type="date" class="p-1.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                        <span class="text-xs text-gray-400 block mt-1">(留空代表无限制)</span>
+                    </td>
+                    
+                    <!-- 状态标签 -->
+                    <td class="p-3">
+                        <span v-if="checkStatus(user) === 'normal'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            正常在线
+                        </span>
+                        <span v-else-if="checkStatus(user) === 'over_quota'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                            流量超限
+                        </span>
+                        <span v-else class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            账号已过期
+                        </span>
+                    </td>
+                    
+                    <!-- 保存按钮 -->
+                    <td class="p-3">
+                        <button @click="saveUser(user)" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded shadow transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                            保存修改
+                        </button>
+                    </td>
+                </tr>
+                <tr v-if="users.length === 0">
+                    <td colspan="7" class="p-6 text-center text-gray-500">
+                        未获取到用户数据，请确保后端正常运行且 config_template.json 配置正确。
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+const { createApp, ref, onMounted } = Vue;
+
+createApp({
+    setup() {
+        const users = ref([]);
+
+        // 字节转合适的单位 (KB, MB, GB)
+        const formatBytes = (bytes) => {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        };
+
+        // 从 Go 后端获取数据
+        const fetchUsers = async () => {
+            try {
+                const res = await fetch('/api/users');
+                if (!res.ok) throw new Error('Network response was not ok');
+                const data = await res.json();
+                
+                // 转换数据供前端双向绑定使用
+                users.value = data.map(u => {
+                    let d = "";
+                    if (u.expire_time > 0) {
+                        // 将后端秒级时间戳转换为 YYYY-MM-DD 供 <input type="date"> 使用
+                        const dateObj = new Date(u.expire_time * 1000);
+                        d = dateObj.toISOString().split('T')[0];
+                    }
+                    return {
+                        name: u.name,
+                        up_bytes: u.up_bytes,
+                        down_bytes: u.down_bytes,
+                        used_bytes: u.used_bytes,
+                        // 字节转为 GB 并保留两位小数
+                        quota_gb: u.quota_bytes > 0 ? parseFloat((u.quota_bytes / (1024 ** 3)).toFixed(2)) : 0,
+                        expire_date: d
+                    }
+                });
+            } catch (error) {
+                console.error("获取用户数据失败:", error);
+            }
+        };
+
+        // 动态判断用户状态
+        const checkStatus = (user) => {
+            if (user.quota_gb > 0 && user.used_bytes >= user.quota_gb * (1024 ** 3)) return 'over_quota';
+            if (user.expire_date) {
+                const expTime = new Date(user.expire_date).getTime();
+                // 简单对比：如果当前时间超过用户设定的那天 23:59:59 则算过期
+                if (Date.now() > expTime + 86400000) return 'expired';
+            }
+            return 'normal';
+        };
+
+        // 保存修改并提交给后端
+        const saveUser = async (user) => {
+            let expTimestamp = 0;
+            if (user.expire_date) {
+                expTimestamp = Math.floor(new Date(user.expire_date).getTime() / 1000);
+            }
+            // GB 转回 Byte
+            const quotaBytes = user.quota_gb ? Math.floor(user.quota_gb * (1024 ** 3)) : 0;
+
+            const payload = {
+                name: user.name,
+                quota_bytes: quotaBytes,
+                expire_time: expTimestamp
+            };
+
+            try {
+                const res = await fetch('/api/users/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) {
+                    // 保存成功后刷新一次数据，由于后端已触发重载，限制秒生效
+                    fetchUsers(); 
+                    alert(`用户 [ ${user.name} ] 规则更新成功并已下发！`);
+                } else {
+                    alert('保存失败，请检查后端状态。');
+                }
+            } catch (error) {
+                alert('网络错误，无法连接到后端。');
+            }
+        };
+
+        onMounted(() => {
+            fetchUsers();
+            // 每 5 秒刷新一次流量，实现面板上数字实时跳动的效果
+            setInterval(fetchUsers, 5000); 
+        });
+
+        return { users, formatBytes, saveUser, checkStatus };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
