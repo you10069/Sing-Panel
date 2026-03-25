@@ -1,0 +1,38 @@
+name: Build Sing-Panel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Go 1.25.8
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.25'
+
+    - name: Install Dependencies
+      run: |
+        go mod tidy
+
+    - name: Build for Linux AMD64 (普通VPS)
+      run: |
+        GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o sing-panel-amd64 main.go
+
+    - name: Build for Linux ARM64 (甲骨文等ARM VPS)
+      run: |
+        GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o sing-panel-arm64 main.go
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: sing-panel-binaries
+        path: |
+          sing-panel-amd64
+          sing-panel-arm64
+        retention-days: 7
