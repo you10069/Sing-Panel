@@ -101,8 +101,8 @@ func fetchTrafficLoop() {
 			continue
 		}
 		client := command.NewStatsServiceClient(conn)
-		// reset: true 代表拉取后 sing-box 内部计数器清零，所以每次拿到的都是增量
-		resp, err := client.QueryStats(context.Background(), &command.QueryStatsRequest{Pattern: "", Reset: true})
+		// 注意这里的 Reset_ : 因为 Go 中 Reset() 是结构体的内置方法，所以 pb 编译后字段名变成了 Reset_
+		resp, err := client.QueryStats(context.Background(), &command.QueryStatsRequest{Pattern: "", Reset_: true})
 		conn.Close()
 		if err != nil {
 			log.Println("获取流量失败:", err)
@@ -168,7 +168,6 @@ func performCheckAndReload() {
 	}
 
 	currentTime := time.Now().Unix()
-	configChanged := false
 
 	// 解析 inbounds 寻找 users 数组 (支持所有带有 users 的协议，如 vless, hysteria2 等)
 	if inbounds, ok := config["inbounds"].([]interface{}); ok {
@@ -197,7 +196,6 @@ func performCheckAndReload() {
 
 						if isExpired || isOverQuota {
 							log.Printf("阻断用户: %s (超流或过期)\n", name)
-							configChanged = true
 						} else {
 							// 只有合法的正常用户才被写入新配置
 							validUsers = append(validUsers, uMap) 
