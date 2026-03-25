@@ -20,11 +20,11 @@ jobs:
       run: |
         go mod tidy
 
-    - name: Build for Linux AMD64 (普通VPS)
+    - name: Build for Linux AMD64
       run: |
         GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o sing-panel-amd64 main.go
 
-    - name: Build for Linux ARM64 (甲骨文等ARM VPS)
+    - name: Build for Linux ARM64
       run: |
         GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o sing-panel-arm64 main.go
 
