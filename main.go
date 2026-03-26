@@ -114,7 +114,7 @@ func main() {
 func fetchTrafficLoop() {
 	for {
 		time.Sleep(10 * time.Second)
-		conn, err := grpc.Dial("127.0.0.1:8080", grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.Dial("127.0.0.1:8001", grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Println("gRPC 连接失败:", err)
 			continue
