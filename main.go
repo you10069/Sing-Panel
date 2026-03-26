@@ -111,16 +111,16 @@ func main() {
 		})
 	}
 
-	fmt.Println("Backend is running on :9090")
+	fmt.Println("Backend is running on :8002")
 	// 监听本地 9090 端口，由 Caddy 反向代理
-	r.Run("127.0.0.1:9090") 
+	r.Run("127.0.0.1:8002") 
 }
 
 // 1. 定时去 sing-box 拉取增量流量
 func fetchTrafficLoop() {
 	for {
 		time.Sleep(10 * time.Second) // 每 10 秒拉取一次
-		conn, err := grpc.Dial("127.0.0.1:8080", grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.Dial("127.0.0.1:8001", grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Println("gRPC 连接失败，稍后重试:", err)
 			continue
