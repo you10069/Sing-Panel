@@ -112,7 +112,7 @@ func main() {
 	}
 
 	fmt.Println("Backend is running on :8002")
-	// 监听本地 9090 端口，由 Caddy 反向代理
+	// 监听本地 8002 端口，由 Caddy 反向代理
 	r.Run("127.0.0.1:8002") 
 }
 
@@ -120,6 +120,7 @@ func main() {
 func fetchTrafficLoop() {
 	for {
 		time.Sleep(10 * time.Second) // 每 10 秒拉取一次
+		// 连接的 gRPC 端口修改为 8001
 		conn, err := grpc.Dial("127.0.0.1:8001", grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Println("gRPC 连接失败，稍后重试:", err)
