@@ -38,6 +38,14 @@ var mu sync.Mutex // 保护文件读写
 // 【优化】缓存上一份生成的配置内容，用于判断 configChanged，避免无意义 reload
 var lastConfigBytes []byte
 
+// 【新增】并发安全的用户流量缓存，避免 HTML 文件无意义写入导致 SSD 磨损
+var lastUserBytes = struct {
+    sync.RWMutex
+    m map[string]int64
+}{
+    m: make(map[string]int64),
+}
+
 func initDB() {
     var err error
     // 连接 SQLite 数据库
@@ -120,14 +128,17 @@ func main() {
                 "used_bytes": 0,
             })
 
+            // 【新增】清除缓存，确保下次会重写 HTML
+            lastUserBytes.Lock()
+            delete(lastUserBytes.m, req.Name)
+            lastUserBytes.Unlock()
+
             c.JSON(200, gin.H{"status": "success"})
-            // 清零后，原本超流被封禁的用户应该恢复正常，所以需要立刻触发一次重载
             go performCheckAndReload()
         })
     }
 
     fmt.Println("Backend is running on :8002")
-    // 监听本地 8002 端口，由 Caddy 反向代理
     if err := r.Run("127.0.0.1:8002"); err != nil {
         log.Fatal("Gin server failed:", err)
     }
@@ -135,17 +146,13 @@ func main() {
 
 // 1. 定时去 sing-box 拉取增量流量
 func fetchTrafficLoop() {
-    // 【优化】将 gRPC 拨号移出循环，使用官方推荐的 grpc.NewClient 建立长连接
-    // 连接的 gRPC 端口修改为 8001
-    // 【说明】上面这句注释保留，但实际应使用 grpc.Dial，grpc.NewClient 并不存在，这里已改为 Dial 长连接复用
+    // 【优化】将 gRPC 拨号移出循环，使用 grpc.Dial 建立长连接复用（兼容稍老版本的 grpc-go）
     conn, err := grpc.Dial("127.0.0.1:8001", grpc.WithTransportCredentials(insecure.NewCredentials()))
     if err != nil {
         log.Fatalf("gRPC 初始化连接失败: %v", err)
     }
-    // 程序运行期间一直保持连接，退出时再关闭
     defer conn.Close()
 
-    // 提前创建好复用的 client
     client := command.NewStatsServiceClient(conn)
 
     for {
@@ -153,15 +160,10 @@ func fetchTrafficLoop() {
 
         // 【优化】增加超时控制，防止 sing-box 进程卡死时导致你的 Go 后端死锁
         ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-
-        // 注意这里的 Reset_ : 因为 Go 中 Reset() 是结构体的内置方法，所以 pb 编译后字段名变成了 Reset_
         resp, err := client.QueryStats(ctx, &command.QueryStatsRequest{Pattern: "", Reset_: true})
-
-        // 获取完毕后立刻释放 context 资源
         cancel()
 
         if err != nil {
-            // 如果因为 sing-box 正在重启等原因报错，直接跳过。gRPC 内部会自动处理断线重连。
             log.Println("获取流量失败(gRPC 稍后会自动重连):", err)
             continue
         }
@@ -215,6 +217,12 @@ func checkAndReloadLoop() {
                     "used_bytes":       0,
                     "last_reset_month": currentMonth, // 标记本月已重置
                 })
+
+                // 【新增】清除缓存，确保 HTML 会重新生成
+                lastUserBytes.Lock()
+                delete(lastUserBytes.m, u.Name)
+                lastUserBytes.Unlock()
+
                 log.Printf("用户 %s 达到每月重置日(%d号)，流量已自动清零\n", u.Name, u.ResetDay)
             }
         }
@@ -301,6 +309,47 @@ func performCheckAndReload() {
         }
     }
 
+    // 【新增】为每个用户生成 HTML 文件（并发安全 + 防磨损）
+    for _, u := range usersInDB {
+        // 并发安全读取缓存
+        lastUserBytes.RLock()
+        last, ok := lastUserBytes.m[u.Name]
+        lastUserBytes.RUnlock()
+
+        // 如果流量没变 → 跳过写入，避免 SSD 磨损
+        if ok && last == u.UsedBytes {
+            continue
+        }
+
+        // 更新缓存
+        lastUserBytes.Lock()
+        lastUserBytes.m[u.Name] = u.UsedBytes
+        lastUserBytes.Unlock()
+
+        doubled := u.UsedBytes * 2
+        gb := float64(doubled) / 1024 / 1024 / 1024
+
+        // 完整 HTML 结构 + UTF-8 + 样式
+        html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>流量查询</title>
+<style>
+body { font-family: Arial, sans-serif; text-align: center; margin-top: 40px; color: #333; }
+</style>
+</head>
+<body>
+您的已用流量为：%.2f GB
+</body>
+</html>`, gb)
+
+        htmlPath := fmt.Sprintf("./%s.html", u.Name)
+        if err := os.WriteFile(htmlPath, []byte(html), 0644); err != nil {
+            log.Println("写入 HTML 文件失败:", err)
+        }
+    }
+
     // 无论是否改变，都重新生成一份 config.json 给 sing-box 使用
     newConfigBytes, err := json.MarshalIndent(config, "", "  ")
     if err != nil {
@@ -308,16 +357,12 @@ func performCheckAndReload() {
         return
     }
 
-    // 【优化】configChanged：如果新生成的配置和上一份完全一致，则不写文件、不 reload，避免无意义重载
+    // 【优化】configChanged：如果新生成的配置和上一份完全一致，则不写文件、不 reload
     if lastConfigBytes != nil && bytes.Equal(lastConfigBytes, newConfigBytes) {
-        // 这里可以按需加一行 debug 日志：
-        // log.Println("配置未变化，跳过写入和重载")
         return
     }
-    // 更新缓存的配置内容
     lastConfigBytes = newConfigBytes
 
-    // 请确保此路径是 sing-box 运行的实际配置文件路径
     // 【优化】使用临时文件 + 原子替换，避免 sing-box 读到半截文件
     tmpPath := "/etc/sing-box/config.json.tmp"
     finalPath := "/etc/sing-box/config.json"
@@ -331,7 +376,7 @@ func performCheckAndReload() {
         return
     }
 
-    // 简单粗暴，通知 systemd 热重载 sing-box (断开违规用户，正常用户不受影响)
+    // 简单粗暴，通知 systemd 热重载 sing-box
     if err := exec.Command("systemctl", "reload", "sing-box").Run(); err != nil {
         log.Println("重载 sing-box 失败:", err)
     }
