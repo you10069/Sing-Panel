@@ -28,6 +28,10 @@ jobs:
       run: |
         GOOS=linux GOARCH=arm64 go build -v -ldflags="-s -w" -o sing-panel-arm64 main.go
 
+    - name: Build for Windows AMD64
+      run: |
+        GOOS=windows GOARCH=amd64 go build -v -ldflags="-s -w" -o sing-panel-amd64.exe main.go
+
     - name: Set TAG_DATE
       run: |
         echo "TAG_DATE=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
@@ -51,6 +55,7 @@ jobs:
         files: |
           sing-panel-amd64
           sing-panel-arm64
+          sing-panel-amd64.exe
         draft: false
         prerelease: true
         make_latest: false
