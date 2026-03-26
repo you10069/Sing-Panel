@@ -3,6 +3,7 @@ package main
 import (
     "bytes" // 【优化】用于高性能比较新旧配置内容
     "context"
+    "crypto/rand" //【新增】用于生成随机24位字符串
     "encoding/json"
     "fmt"
     "log"
@@ -30,6 +31,7 @@ type User struct {
     ExpireTime     int64  `json:"expire_time"`            // 到期时间戳 (秒)，0代表无限制
     ResetDay       int    `json:"reset_day"`              // 【新增】每月几号重置 (1-28，0代表不自动重置)
     LastResetMonth int    `json:"last_reset_month"`       // 【新增】记录上次重置的月份，防止单日内重复清零
+    HTMLName       string `json:"html_name"`              // 【新增】固定的24位随机HTML文件名（持久化）
 }
 
 var db *gorm.DB
@@ -44,6 +46,20 @@ var lastUserBytes = struct {
     m map[string]int64
 }{
     m: make(map[string]int64),
+}
+
+//【新增】生成 24 位随机字符串（大小写字母 + 数字）
+func randString24() string {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    b := make([]byte, 24)
+    _, err := rand.Read(b)
+    if err != nil {
+        return fmt.Sprintf("%d", time.Now().UnixNano())
+    }
+    for i := 0; i < 24; i++ {
+        b[i] = chars[int(b[i])%len(chars)]
+    }
+    return string(b)
 }
 
 func initDB() {
@@ -128,7 +144,7 @@ func main() {
                 "used_bytes": 0,
             })
 
-            // 【新增】清除缓存，确保下次会重写 HTML
+            // 【新增】清除缓存，确保下次会重写 HTML（文件名不变）
             lastUserBytes.Lock()
             delete(lastUserBytes.m, req.Name)
             lastUserBytes.Unlock()
@@ -309,14 +325,16 @@ func performCheckAndReload() {
         }
     }
 
-    // 【新增】为每个用户生成 HTML 文件（并发安全 + 防磨损）
-    for _, u := range usersInDB {
+    // 【新增】为每个用户生成 HTML 文件（users/目录 + 持久化文件名 + 防磨损）
+    for i := range usersInDB {
+        u := &usersInDB[i]
+
         // 并发安全读取缓存
         lastUserBytes.RLock()
         last, ok := lastUserBytes.m[u.Name]
         lastUserBytes.RUnlock()
 
-        // 如果流量没变 → 跳过写入，避免 SSD 磨损
+        // 如果流量没变 → 跳过写入
         if ok && last == u.UsedBytes {
             continue
         }
@@ -325,6 +343,12 @@ func performCheckAndReload() {
         lastUserBytes.Lock()
         lastUserBytes.m[u.Name] = u.UsedBytes
         lastUserBytes.Unlock()
+
+        // 第一次生成固定文件名
+        if u.HTMLName == "" {
+            u.HTMLName = randString24() + ".html"
+            db.Model(&User{}).Where("name = ?", u.Name).Update("html_name", u.HTMLName)
+        }
 
         doubled := u.UsedBytes * 2
         gb := float64(doubled) / 1024 / 1024 / 1024
@@ -344,7 +368,22 @@ body { font-family: Arial, sans-serif; text-align: center; margin-top: 40px; col
 </body>
 </html>`, gb)
 
-        htmlPath := fmt.Sprintf("./%s.html", u.Name)
+        //【新增】最外层 users 目录
+        if err := os.MkdirAll("./users", 0755); err != nil {
+            log.Println("创建 users 目录失败:", err)
+            continue
+        }
+
+        //【新增】用户目录：./users/用户名/
+        userDir := fmt.Sprintf("./users/%s", u.Name)
+        if err := os.MkdirAll(userDir, 0755); err != nil {
+            log.Println("创建用户目录失败:", err)
+            continue
+        }
+
+        //【新增】最终 HTML 路径
+        htmlPath := fmt.Sprintf("./users/%s/%s", u.Name, u.HTMLName)
+
         if err := os.WriteFile(htmlPath, []byte(html), 0644); err != nil {
             log.Println("写入 HTML 文件失败:", err)
         }
