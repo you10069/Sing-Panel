@@ -9,9 +9,9 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v4
 
-    - name: Set up Go
+    - name: Set up Go 1.25.8
       uses: actions/setup-go@v6
       with:
         go-version: '1.25'
@@ -20,19 +20,37 @@ jobs:
       run: |
         go mod tidy
 
-    - name: Build for Linux AMD64
+    - name: Build for Linux AMD64 (普通VPS)
       run: |
         GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o sing-panel-amd64 main.go
 
-    - name: Build for Linux ARM64
+    - name: Build for Linux ARM64 (甲骨文等ARM VPS)
       run: |
         GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o sing-panel-arm64 main.go
 
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
+    - name: Set TAG_DATE
+      run: |
+        echo "TAG_DATE=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
+      shell: bash
+
+    # - name: Upload Artifacts
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: sing-panel-binaries
+    #     path: |
+    #       sing-panel-amd64
+    #       sing-panel-arm64
+    #     retention-days: 1
+
+    - name:  Upload
+      uses: softprops/action-gh-release@v2
       with:
-        name: sing-panel-binaries
-        path: |
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag_name: sing-panel-${{ env.TAG_DATE }}
+        name: sing-panel-${{ env.TAG_DATE }}
+        files: |
           sing-panel-amd64
           sing-panel-arm64
-        retention-days: 7
+        draft: false
+        prerelease: true
+        make_latest: false
