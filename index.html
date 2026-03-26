@@ -19,7 +19,9 @@
                     <th class="p-3 border-b rounded-tl-lg">用户名 (Name)</th>
                     <th class="p-3 border-b">上传 / 下载</th>
                     <th class="p-3 border-b">总已用 (合计)</th>
+                    <th class="p-3 border-b text-center">重置统计</th> <!-- 新增：清零按钮列 -->
                     <th class="p-3 border-b">总额度 (GB)</th>
+                    <th class="p-3 border-b">每月重置日</th>      <!-- 新增：重置日设定列 -->
                     <th class="p-3 border-b">到期时间</th>
                     <th class="p-3 border-b">当前状态</th>
                     <th class="p-3 border-b rounded-tr-lg">操作</th>
@@ -30,19 +32,26 @@
                     <!-- 用户名 -->
                     <td class="p-3 font-bold text-gray-700">{{ user.name }}</td>
                     
-                    <!-- 上传/下载分栏展示 -->
+                    <!-- 上传/下载 -->
                     <td class="p-3 text-sm">
-                        <div class="text-green-600 font-medium mb-1" title="上传流量">
+                        <div class="text-green-600 font-medium mb-1">
                             <span class="inline-block w-4">↑</span> {{ formatBytes(user.up_bytes) }}
                         </div>
-                        <div class="text-blue-500 font-medium" title="下载流量">
+                        <div class="text-blue-500 font-medium">
                             <span class="inline-block w-4">↓</span> {{ formatBytes(user.down_bytes) }}
                         </div>
                     </td>
                     
-                    <!-- 累计已用总流量 -->
+                    <!-- 总计已用 -->
                     <td class="p-3 font-bold text-gray-800">
                         {{ formatBytes(user.used_bytes) }}
+                    </td>
+
+                    <!-- 【新增】手动清零流量按钮 -->
+                    <td class="p-3 text-center">
+                        <button @click="resetTraffic(user)" class="bg-red-50 text-red-600 hover:bg-red-500 hover:text-white border border-red-200 text-xs px-3 py-1.5 rounded transition duration-150 focus:outline-none">
+                            手动清零
+                        </button>
                     </td>
                     
                     <!-- 额度输入框 -->
@@ -51,37 +60,38 @@
                             <input v-model="user.quota_gb" type="number" min="0" class="w-20 p-1.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400" />
                             <span class="text-gray-600 font-medium">GB</span>
                         </div>
-                        <span class="text-xs text-gray-400 block mt-1">(0代表无限制)</span>
+                    </td>
+
+                    <!-- 【新增】每月重置日 -->
+                    <td class="p-3">
+                        <div class="flex items-center space-x-1">
+                            <input v-model="user.reset_day" type="number" min="0" max="28" class="w-16 p-1.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                            <span class="text-gray-600 font-medium">号</span>
+                        </div>
+                        <span class="text-xs text-gray-400 block mt-1">(1-28, 0不重置)</span>
                     </td>
                     
                     <!-- 到期时间选择器 -->
                     <td class="p-3">
                         <input v-model="user.expire_date" type="date" class="p-1.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                        <span class="text-xs text-gray-400 block mt-1">(留空代表无限制)</span>
                     </td>
                     
                     <!-- 状态标签 -->
                     <td class="p-3">
-                        <span v-if="checkStatus(user) === 'normal'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            正常在线
-                        </span>
-                        <span v-else-if="checkStatus(user) === 'over_quota'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                            流量超限
-                        </span>
-                        <span v-else class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                            账号已过期
-                        </span>
+                        <span v-if="checkStatus(user) === 'normal'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">正常在线</span>
+                        <span v-else-if="checkStatus(user) === 'over_quota'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">流量超限</span>
+                        <span v-else class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">账号已过期</span>
                     </td>
                     
                     <!-- 保存按钮 -->
                     <td class="p-3">
-                        <button @click="saveUser(user)" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded shadow transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
-                            保存修改
+                        <button @click="saveUser(user)" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded shadow transition duration-150 focus:outline-none">
+                            保存规则
                         </button>
                     </td>
                 </tr>
                 <tr v-if="users.length === 0">
-                    <td colspan="7" class="p-6 text-center text-gray-500">
+                    <td colspan="9" class="p-6 text-center text-gray-500">
                         未获取到用户数据，请确保后端正常运行且 config_template.json 配置正确。
                     </td>
                 </tr>
@@ -97,27 +107,24 @@ createApp({
     setup() {
         const users = ref([]);
 
-        // 字节转合适的单位 (KB, MB, GB)
         const formatBytes = (bytes) => {
             if (bytes === 0) return '0 B';
             const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const sizes =['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         };
 
-        // 从 Go 后端获取数据
         const fetchUsers = async () => {
             try {
+                // 如果你之前加了 Caddy 隐藏路径前缀，请在这里也补上
                 const res = await fetch('/api/users');
                 if (!res.ok) throw new Error('Network response was not ok');
                 const data = await res.json();
                 
-                // 转换数据供前端双向绑定使用
                 users.value = data.map(u => {
                     let d = "";
                     if (u.expire_time > 0) {
-                        // 将后端秒级时间戳转换为 YYYY-MM-DD 供 <input type="date"> 使用
                         const dateObj = new Date(u.expire_time * 1000);
                         d = dateObj.toISOString().split('T')[0];
                     }
@@ -126,40 +133,59 @@ createApp({
                         up_bytes: u.up_bytes,
                         down_bytes: u.down_bytes,
                         used_bytes: u.used_bytes,
-                        // 字节转为 GB 并保留两位小数
                         quota_gb: u.quota_bytes > 0 ? parseFloat((u.quota_bytes / (1024 ** 3)).toFixed(2)) : 0,
-                        expire_date: d
+                        expire_date: d,
+                        reset_day: u.reset_day || 0 // 绑定重置日
                     }
                 });
             } catch (error) {
-                console.error("获取用户数据失败:", error);
+                console.error("获取数据失败:", error);
             }
         };
 
-        // 动态判断用户状态
         const checkStatus = (user) => {
             if (user.quota_gb > 0 && user.used_bytes >= user.quota_gb * (1024 ** 3)) return 'over_quota';
             if (user.expire_date) {
                 const expTime = new Date(user.expire_date).getTime();
-                // 简单对比：如果当前时间超过用户设定的那天 23:59:59 则算过期
                 if (Date.now() > expTime + 86400000) return 'expired';
             }
             return 'normal';
         };
 
-        // 保存修改并提交给后端
+        // 【新增】手动调用后端清零接口
+        const resetTraffic = async (user) => {
+            if (!confirm(`警告：确定要将用户[ ${user.name} ] 的已用流量全部清零吗？\n清零后该用户将立即恢复可用状态。`)) return;
+            
+            try {
+                const res = await fetch('/api/users/reset_traffic', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: user.name })
+                });
+
+                if (res.ok) {
+                    fetchUsers(); // 立刻刷新页面数据
+                    alert(`✅ 用户 [ ${user.name} ] 流量已成功清零！`);
+                } else {
+                    alert('清零失败，请检查后端状态。');
+                }
+            } catch (error) {
+                alert('网络错误，无法连接到后端。');
+            }
+        };
+
         const saveUser = async (user) => {
             let expTimestamp = 0;
             if (user.expire_date) {
                 expTimestamp = Math.floor(new Date(user.expire_date).getTime() / 1000);
             }
-            // GB 转回 Byte
             const quotaBytes = user.quota_gb ? Math.floor(user.quota_gb * (1024 ** 3)) : 0;
 
             const payload = {
                 name: user.name,
                 quota_bytes: quotaBytes,
-                expire_time: expTimestamp
+                expire_time: expTimestamp,
+                reset_day: parseInt(user.reset_day) || 0  // 提交重置日
             };
 
             try {
@@ -170,24 +196,22 @@ createApp({
                 });
 
                 if (res.ok) {
-                    // 保存成功后刷新一次数据，由于后端已触发重载，限制秒生效
                     fetchUsers(); 
-                    alert(`用户 [ ${user.name} ] 规则更新成功并已下发！`);
+                    alert(`✅ 用户[ ${user.name} ] 规则更新成功！`);
                 } else {
-                    alert('保存失败，请检查后端状态。');
+                    alert('保存失败。');
                 }
             } catch (error) {
-                alert('网络错误，无法连接到后端。');
+                alert('网络错误。');
             }
         };
 
         onMounted(() => {
             fetchUsers();
-            // 每 5 秒刷新一次流量，实现面板上数字实时跳动的效果
             setInterval(fetchUsers, 5000); 
         });
 
-        return { users, formatBytes, saveUser, checkStatus };
+        return { users, formatBytes, saveUser, checkStatus, resetTraffic };
     }
 }).mount('#app');
 </script>
