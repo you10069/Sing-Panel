@@ -118,7 +118,7 @@ createApp({
         const fetchUsers = async () => {
             try {
                 // 如果你之前加了 Caddy 隐藏路径前缀，请在这里也补上
-                const res = await fetch('/api/users');
+                const res = await fetch('/Qiu2tvF3Qo7RcD62eq4j8e3Cf5QBysfH/api/users');
                 if (!res.ok) throw new Error('Network response was not ok');
                 const data = await res.json();
                 
@@ -157,7 +157,8 @@ createApp({
             if (!confirm(`警告：确定要将用户[ ${user.name} ] 的已用流量全部清零吗？\n清零后该用户将立即恢复可用状态。`)) return;
             
             try {
-                const res = await fetch('/api/users/reset_traffic', {
+                // 如果你之前加了 Caddy 隐藏路径前缀，请在这里也补上
+                const res = await fetch('/Qiu2tvF3Qo7RcD62eq4j8e3Cf5QBysfH/api/users/reset_traffic', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: user.name })
@@ -189,7 +190,8 @@ createApp({
             };
 
             try {
-                const res = await fetch('/api/users/update', {
+                // 如果你之前加了 Caddy 隐藏路径前缀，请在这里也补上
+                const res = await fetch('/Qiu2tvF3Qo7RcD62eq4j8e3Cf5QBysfH/api/users/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
