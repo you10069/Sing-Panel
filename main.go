@@ -62,6 +62,61 @@ func randString24() string {
     return string(b)
 }
 
+//【新增】移除 JSON 中的注释（支持 // 和 /* */）
+func removeJSONComments(input []byte) []byte {
+    output := make([]byte, 0, len(input))
+    inString := false
+    inLineComment := false
+    inBlockComment := false
+
+    for i := 0; i < len(input); i++ {
+        c := input[i]
+
+        if c == '"' && !inLineComment && !inBlockComment {
+            output = append(output, c)
+            inString = !inString
+            continue
+        }
+
+        if inString {
+            output = append(output, c)
+            continue
+        }
+
+        if !inBlockComment && i+1 < len(input) && input[i] == '/' && input[i+1] == '/' {
+            inLineComment = true
+            i++
+            continue
+        }
+
+        if inLineComment {
+            if c == '\n' {
+                inLineComment = false
+                output = append(output, c)
+            }
+            continue
+        }
+
+        if !inLineComment && i+1 < len(input) && input[i] == '/' && input[i+1] == '*' {
+            inBlockComment = true
+            i++
+            continue
+        }
+
+        if inBlockComment {
+            if i+1 < len(input) && input[i] == '*' && input[i+1] == '/' {
+                inBlockComment = false
+                i++
+            }
+            continue
+        }
+
+        output = append(output, c)
+    }
+
+    return output
+}
+
 func initDB() {
     var err error
     // 连接 SQLite 数据库
@@ -259,6 +314,9 @@ func performCheckAndReload() {
         log.Println("无法读取 config_template.json:", err)
         return
     }
+
+    //【新增】移除 JSON 注释（不修改模板文件，只处理内存中的 data）
+    data = removeJSONComments(data)
 
     var config map[string]interface{}
     if err := json.Unmarshal(data, &config); err != nil {
