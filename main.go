@@ -474,7 +474,7 @@ body { font-family: Arial, sans-serif; text-align: center; margin-top: 40px; col
     }
 
     // 简单粗暴，通知 systemd 热重载 sing-box
-    if err := exec.Command("systemctl", "reload", "sing-box").Run(); err != nil {
-        log.Println("重载 sing-box 失败:", err)
+    if err := exec.Command("systemctl", "restart", "sing-box").Run(); err != nil {
+        log.Println("重启 sing-box 失败:", err)
     }
 }
