@@ -352,30 +352,32 @@ func performCheckAndReload() {
                     if !ok {
                         continue
                     }
-                    if nameObj, nameOk := uMap["name"]; nameOk {
-                        name, ok := nameObj.(string)
-                        if !ok {
-                            continue
-                        }
+                    nameObj := uMap["name"]
+                    if nameObj == nil {
+                        nameObj = uMap["username"]
+                    }
+                    name, ok := nameObj.(string)
+                    if !ok {
+                        continue
+                    }
 
-                        // 如果数据库里没有这个用户，自动添加进去并初始化所有字段为 0
-                        dbUser, exists := userMap[name]
-                        if !exists {
-                            dbUser = User{Name: name, UpBytes: 0, DownBytes: 0, UsedBytes: 0, QuotaBytes: 0, ExpireTime: 0}
-                            db.Create(&dbUser)
-                            userMap[name] = dbUser
-                        }
+                    // 如果数据库里没有这个用户，自动添加进去并初始化所有字段为 0
+                    dbUser, exists := userMap[name]
+                    if !exists {
+                        dbUser = User{Name: name, UpBytes: 0, DownBytes: 0, UsedBytes: 0, QuotaBytes: 0, ExpireTime: 0}
+                        db.Create(&dbUser)
+                        userMap[name] = dbUser
+                    }
 
-                        // 检查是否受限 (用总用量判断超流)
-                        isExpired := dbUser.ExpireTime > 0 && currentTime > dbUser.ExpireTime
-                        isOverQuota := dbUser.QuotaBytes > 0 && dbUser.UsedBytes >= dbUser.QuotaBytes
+                    // 检查是否受限 (用总用量判断超流)
+                    isExpired := dbUser.ExpireTime > 0 && currentTime > dbUser.ExpireTime
+                    isOverQuota := dbUser.QuotaBytes > 0 && dbUser.UsedBytes >= dbUser.QuotaBytes
 
-                        if isExpired || isOverQuota {
-                            log.Printf("阻断用户: %s (超流或过期)\n", name)
-                        } else {
-                            // 只有合法的正常用户才被写入新配置
-                            validUsers = append(validUsers, uMap)
-                        }
+                    if isExpired || isOverQuota {
+                        log.Printf("阻断用户: %s (超流或过期)\n", name)
+                    } else {
+                        // 只有合法的正常用户才被写入新配置
+                        validUsers = append(validUsers, uMap)
                     }
                 }
                 inbound["users"] = validUsers
